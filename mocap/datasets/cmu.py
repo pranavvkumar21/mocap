@@ -22,32 +22,6 @@ def GET_ACTIONS(subject):
     if f.endswith('.amc')]
   return actions
 
-def get_joint_angles(joints, motions):
-    """
-    Extract joint angles from motions with respect to joints definitions.
-
-    Args:
-        joints (dict): Dictionary of Joint objects parsed from ASF.
-        motions (list of dict): List of motions per frame, each is a dict mapping joint_name to DOF values.
-
-    Returns:
-        np.ndarray: Array of shape (n_frames, n_joints, 3) containing joint DOF values.
-                    Joints with fewer than 3 DOFs are zero-padded; excess DOFs truncated.
-    """
-    n_frames = len(motions)
-    joint_names = list(joints.keys())
-    n_joints = len(joint_names)
-    angles = np.zeros((n_frames, n_joints, 3), dtype=np.float32)
-
-    for frame_idx, motion in enumerate(motions):
-        for j_idx, joint_name in enumerate(joint_names):
-            dofs = joints[joint_name].dof
-            values = motion.get(joint_name, [])
-            for dof_idx, (dof, value) in enumerate(zip(dofs, values)):
-                if dof_idx < 3:
-                    angles[frame_idx, j_idx, dof_idx] = value
-
-    return angles
 
 def get(subject, action, store_binary=True, z_is_up=True):
     subject_loc = join(CMU_DA.CMU_DIR, subject)
@@ -72,13 +46,20 @@ def get(subject, action, store_binary=True, z_is_up=True):
 
     n_joints = 31
     n_frames = len(motions)
-    joint_angles = get_joint_angles(joints, motions)
+    # joint_angles = get_joint_angles(joints, motions)
     points3d = np.empty((n_frames, n_joints, 3), np.float32)
-
-    for frame, motion in enumerate(motions):
-        joints['root'].set_motion(motion)
-        for jid, j in enumerate(joints.values()):
-            points3d[frame, jid] = np.squeeze(j.coordinate)
+    joint_angles = np.empty((n_frames, 62), np.float32)  # 62 angles
+    for frame_idx, motion in enumerate(motions):
+            # Apply forward kinematics to update joint positions for this frame
+            joints['root'].set_motion(motion)
+            for j in joints.values():
+                jid = j.id
+                points3d[frame_idx, jid] = np.squeeze(j.coordinate)
+                # Extract joint angles and store, up to 3 DOFs (pad with zeros if fewer)
+                dofs = j.dof
+                values = motion.get(j.name, [])
+                for dof_idx, value in enumerate(values[:3]):
+                    joint_angles[frame_idx, jid, dof_idx] = value
 
     if z_is_up:
         R = np.array([
