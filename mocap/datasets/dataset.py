@@ -17,7 +17,7 @@ ALL_LIMBS = [Limb.HEAD, Limb.LEFT_ARM, Limb.LEFT_LEG, Limb.RIGHT_ARM, Limb.RIGHT
 
 class DataSet:
 
-    def __init__(self, Data, Keys, framerate, iterate_with_framerate,
+    def __init__(self, Data, joint_angles, Keys, framerate, iterate_with_framerate,
                  iterate_with_keys, j_root, j_left, j_right,
                  n_joints, name, joints_per_limb,
                  mirror_fn=None):
@@ -53,7 +53,9 @@ class DataSet:
         if not isinstance(framerate, int):
             assert len(framerate) == n_sequences
         self.Data = Data
+        self.joint_angles = joint_angles
         self.Keys = Keys
+
         self.framerate = framerate
         self.n_data_entries = len(Data)
         self.n_sequences = n_sequences
@@ -95,12 +97,16 @@ class DataSet:
         """
         assert isinstance(index, int)
         assert index >= 0 and index < self.n_sequences, 'out of bounds: ' + str(self.n_sequences) + ' vs ' + str(index)
+        # return single data entry directly
         if self.n_data_entries == 1:
-            return self.Data[0][index]
+            return self.Data[0][index], self.joint_angles[0][index]
         result = []
+        joint_angles_result = []
         for data in self.Data:
             result.append(data[index])
-        return result
+        for joint_angle_data in self.joint_angles:
+            joint_angles_result.append(joint_angle_data[index])
+        return result, joint_angles_result
     
     def __getitem__(self, key):
         return self.get_sequence(key)

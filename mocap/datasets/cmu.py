@@ -22,6 +22,32 @@ def GET_ACTIONS(subject):
     if f.endswith('.amc')]
   return actions
 
+def get_joint_angles(joints, motions):
+    """
+    Extract joint angles from motions with respect to joints definitions.
+
+    Args:
+        joints (dict): Dictionary of Joint objects parsed from ASF.
+        motions (list of dict): List of motions per frame, each is a dict mapping joint_name to DOF values.
+
+    Returns:
+        np.ndarray: Array of shape (n_frames, n_joints, 3) containing joint DOF values.
+                    Joints with fewer than 3 DOFs are zero-padded; excess DOFs truncated.
+    """
+    n_frames = len(motions)
+    joint_names = list(joints.keys())
+    n_joints = len(joint_names)
+    angles = np.zeros((n_frames, n_joints, 3), dtype=np.float32)
+
+    for frame_idx, motion in enumerate(motions):
+        for j_idx, joint_name in enumerate(joint_names):
+            dofs = joints[joint_name].dof
+            values = motion.get(joint_name, [])
+            for dof_idx, (dof, value) in enumerate(zip(dofs, values)):
+                if dof_idx < 3:
+                    angles[frame_idx, j_idx, dof_idx] = value
+
+    return angles
 
 def get(subject, action, store_binary=True, z_is_up=True):
     subject_loc = join(CMU_DA.CMU_DIR, subject)
@@ -32,10 +58,11 @@ def get(subject, action, store_binary=True, z_is_up=True):
         if z_is_up:
             file_meta = '_zup'
         npy_file = join(subject_loc, subject + '_' + action + file_meta + '.npy')
+        angle_npy_file = join(subject_loc, subject + '_' + action + '_angles.npy')
         if isfile(npy_file):
             points3d = np.load(npy_file).astype('float32')
-            return points3d
-
+            joint_angles = np.load(angle_npy_file).astype('float32')
+            return points3d, joint_angles
     asf_file = join(subject_loc, subject + '.asf')
     amc_file = join(subject_loc, subject + '_' + action + '.amc')
     assert isfile(asf_file), asf_file
@@ -45,7 +72,7 @@ def get(subject, action, store_binary=True, z_is_up=True):
 
     n_joints = 31
     n_frames = len(motions)
-
+    joint_angles = get_joint_angles(joints, motions)
     points3d = np.empty((n_frames, n_joints, 3), np.float32)
 
     for frame, motion in enumerate(motions):
@@ -64,8 +91,9 @@ def get(subject, action, store_binary=True, z_is_up=True):
     points3d = points3d * 0.056444  # convert inches to mm
     if store_binary:
         np.save(npy_file, points3d)  # file must not exist
+        np.save(angle_npy_file, joint_angles)
 
-    return points3d
+    return points3d, joint_angles
 
 
 @nb.jit(nb.float32[:, :, :](
@@ -138,10 +166,12 @@ class CMU(DataSet):
     subjects_with_60fps = {'60', '61', '75', '87', '88', '89'}
     seqs = []
     keys = []
+    joint_angles = []
     framerates = []
     for subject in subjects:
+      print("Loading subject:", subject)
       for action in GET_ACTIONS(subject):
-        seq = get(subject, action, 
+        seq, joint_angle = get(subject, action, 
                   store_binary=store_binary,
                   z_is_up=z_is_up)
         if remove_global_Rt:
@@ -151,6 +181,8 @@ class CMU(DataSet):
                                                        j_right=6)
         seqs.append(seq)
         keys.append((subject, action))
+        joint_angles.append(joint_angle)
+        
 
         if subject in subjects_with_60fps:
           framerates.append(60)
@@ -158,7 +190,7 @@ class CMU(DataSet):
           framerates.append(120)
 
 
-    super().__init__([seqs], Keys=keys,
+    super().__init__([seqs],[joint_angles], Keys=keys,
                      framerate=framerates,
                      iterate_with_framerate=iterate_with_framerate,
                      iterate_with_keys=iterate_with_keys,
@@ -306,6 +338,7 @@ def parse_asf(file_path):
 
     line, idx = read_line(content, idx)
     assert line[0] == 'id'
+    joint_id = int(line[1])
 
     line, idx = read_line(content, idx)
     assert line[0] == 'name'
@@ -346,6 +379,7 @@ def parse_asf(file_path):
 
     assert line[0] == 'end'
     joints[name] = Joint(
+      joint_id,
       name,
       direction,
       length,
