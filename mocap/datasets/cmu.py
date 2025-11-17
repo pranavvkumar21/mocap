@@ -48,7 +48,7 @@ def get(subject, action, store_binary=True, z_is_up=True):
     n_frames = len(motions)
     # joint_angles = get_joint_angles(joints, motions)
     points3d = np.empty((n_frames, n_joints, 3), np.float32)
-    joint_angles = np.empty((n_frames, 62), np.float32)  # 62 angles
+    joint_angles = np.zeros((n_frames, n_joints, 3), np.float32)
     for frame_idx, motion in enumerate(motions):
             # Apply forward kinematics to update joint positions for this frame
             joints['root'].set_motion(motion)
@@ -185,7 +185,7 @@ class CMU(DataSet):
 # https://github.com/CalciferZh/AMCParser
 # =====================================================================
 class Joint:
-  def __init__(self, name, direction, length, axis, dof, limits):
+  def __init__(self, joint_id, name, direction, length, axis, dof, limits):
     """
     Definition of basic joint. The joint also contains the information of the
     bone between it's parent joint and itself. Refer
@@ -203,6 +203,7 @@ class Joint:
     order they appear in the AMC file.
     limits: Limits on each of the channels in the dof specification
     """
+    self.id = joint_id
     self.name = name
     self.direction = np.reshape(direction, [3, 1])
     self.length = length
@@ -305,7 +306,7 @@ def parse_asf(file_path):
       break
 
   # read joints
-  joints = {'root': Joint('root', np.zeros(3), 0, np.zeros(3), [], [])}
+  joints = {'root': Joint(-1,'root', np.zeros(3), 0, np.zeros(3), [], [])}
   idx = 0
   while True:
     # the order of each section is hard-coded
